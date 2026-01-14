@@ -82,7 +82,7 @@ final class ZipReader implements ArchiveReader
 
                 // close input file
                 \fclose($resource);
-            } catch (ContentWithoutDataException $e) {
+            } catch (ContentWithoutDataException) {
             }
 
             yield $this->completeResourceStream();
@@ -164,9 +164,6 @@ final class ZipReader implements ArchiveReader
             $genb |= 0x0800;
         }
 
-        $num = \count($this->files);
-        $num = $num > 0xFFFF ? 0xFFFF : $num;
-
         // build file header
         $fields = [                // (from V.A of APPNOTE.TXT)
             ['V', 0x04034b50],     // local file header signature
@@ -189,7 +186,7 @@ final class ZipReader implements ArchiveReader
             $name,
             $method,
             // 2-4 will be filled in by complete_file_stream()
-            5 => (\strlen($ret) + \strlen($name) + \strlen($extra)),
+            5 => \gmp_init(\strlen($ret) + \strlen($name) + \strlen($extra)),
             6 => $genb,
             7 => \substr($name, -1) == '/' ? 0x10 : 0x20, // 0x10 for directory, 0x20 for file
         ];
@@ -241,11 +238,15 @@ final class ZipReader implements ArchiveReader
         // pack fields and calculate "total" length
         $data = PackHelper::packFields($fields);
 
-        // Update cdr for file record
+        /** @var \GMP $local_header_len */
+        $local_header_len = $this->current_file_stream[5];
+        $rec_len = \gmp_add($local_header_len, \gmp_add($this->zlen, \gmp_init(\strlen($data))));
+
+        // Update CDR with exact offset and lengths
         $this->current_file_stream[2] = $crc;
         $this->current_file_stream[3] = $this->zlen;
         $this->current_file_stream[4] = $this->len;
-        $this->current_file_stream[5] += \gmp_intval(\gmp_add(\gmp_init(\strlen($data)), $this->zlen));
+        $this->current_file_stream[5] = $rec_len; // store total length for offset increment
         \ksort($this->current_file_stream);
 
         // Add to cdr and increment offset - can't call directly because we pass an array of params
@@ -266,11 +267,11 @@ final class ZipReader implements ArchiveReader
      * @param int $crc Computed checksum of the file.
      * @param \GMP $zlen Compressed size.
      * @param \GMP $len Uncompressed size.
-     * @param int $rec_len Size of the record.
+     * @param \GMP $rec_len Size of the record.
      * @param int $genb General purpose bit flag.
      * @param int $fattr File attribute bit flag.
      */
-    private function addToCdr(string $name, int $method, int $crc, \GMP $zlen, \GMP $len, int $rec_len, int $genb = 0, int $fattr = 0x20): void
+    private function addToCdr(string $name, int $method, int $crc, \GMP $zlen, \GMP $len, \GMP $rec_len, int $genb = 0, int $fattr = 0x20): void
     {
         $this->files[] = [$name, $method, $crc, $zlen, $len, $this->cdr_ofs, $genb, $fattr];
         $this->cdr_ofs = \gmp_add($this->cdr_ofs, $rec_len);
@@ -286,9 +287,9 @@ final class ZipReader implements ArchiveReader
     private function addCdrFile(array $args): \SplTempFileObject
     {
         /** @var string $name */
-        /** @var int|string|\GMP $zlen */
-        /** @var int|string|\GMP $len */
-        /** @var int|string|\GMP $ofs */
+        /** @var \GMP $zlen */
+        /** @var \GMP $len */
+        /** @var \GMP $ofs */
         list($name, $meth, $crc, $zlen, $len, $ofs, $genb, $file_attribute) = $args;
 
         // convert the 64 bit ints to 2 32bit ints
@@ -298,25 +299,23 @@ final class ZipReader implements ArchiveReader
 
         // ZIP64, necessary for files over 4GB (incl. entire archive size)
         $extra_zip64 = '';
-        if ($len == 0xFFFFFFFF) {
+        if (\gmp_cmp($len, \gmp_init(0xFFFFFFFF)) > 0) {
             $extra_zip64 .= \pack('VV', $len_low, $len_high);
         }
 
-        if ($zlen == 0xFFFFFFFF) {
+        if (\gmp_cmp($zlen, \gmp_init(0xFFFFFFFF)) > 0) {
             $extra_zip64 .= \pack('VV', $zlen_low, $zlen_high);
         }
-        if ($ofs == 0xFFFFFFFF) {
+
+        if (\gmp_cmp($ofs, \gmp_init(0xFFFFFFFF)) > 0) {
             $extra_zip64 .= \pack('VV', $ofs_low, $ofs_high);
         }
 
-
-        if (!empty($extra_zip64)) {
-            $extra = \pack('vv', 1, \strlen($extra_zip64)) . $extra_zip64;
-        } else {
+        if ($extra_zip64 === '') {
             $extra = '';
+        } else {
+            $extra = \pack('vv', 1, \strlen($extra_zip64)) . $extra_zip64;
         }
-
-        $extra = \pack('vv', 1, \strlen($extra_zip64)) . $extra_zip64;
 
         // get attributes
         $comment = $this->archive->getComment();
@@ -332,15 +331,15 @@ final class ZipReader implements ArchiveReader
             ['v', $meth],                // compresion method (deflate or store)
             ['V', $dts],                 // dos timestamp
             ['V', $crc],                 // crc32 of data
-            ['V', $zlen],                // compressed data length (zip64 - look in extra)
-            ['V', $len],                 // uncompressed data length (zip64 - look in extra)
+            ['V', \gmp_cmp($zlen, \gmp_init(0xFFFFFFFF)) > 0 ? 0xFFFFFFFF : \gmp_intval($zlen)],
+            ['V', \gmp_cmp($len, \gmp_init(0xFFFFFFFF)) > 0 ? 0xFFFFFFFF : \gmp_intval($len)],
             ['v', \strlen($name)],        // filename length
             ['v', \strlen($extra)],       // extra data len
             ['v', \strlen($comment)],     // file comment length
             ['v', 0],                    // disk number start
             ['v', 0],                    // internal file attributes
             ['V', $file_attribute],      // external file attributes, 0x10 for dir, 0x20 for file
-            ['V', $ofs],                 // relative offset of local header (zip64 - look in extra)
+            ['V', \gmp_cmp($ofs, \gmp_init(0xFFFFFFFF)) > 0 ? 0xFFFFFFFF : \gmp_intval($ofs)],
         ];
 
         // pack fields, then append name and comment
@@ -361,7 +360,7 @@ final class ZipReader implements ArchiveReader
      */
     private function addCdrEofZip64(): \SplTempFileObject
     {
-        $num = \count($this->files);
+        $num = \gmp_init(\count($this->files));
 
         list($num_low, $num_high) = PackHelper::int64Split($num);
         list($cdr_len_low, $cdr_len_high) = PackHelper::int64Split($this->cdr_len);

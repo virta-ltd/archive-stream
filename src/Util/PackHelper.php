@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Genkgo\ArchiveStream\Util;
 
-use GMP;
-
 final class PackHelper
 {
     /**
@@ -69,15 +67,11 @@ final class PackHelper
     /**
      * Split a 64-bit integer to two 32-bit integers.
      *
-     * @param int|string|GMP $value Integer or GMP resource.
+     * @param \GMP $value Integer or GMP resource.
      * @return array<int, int|string> Containing high and low 32-bit integers.
      */
-    public static function int64Split($value): array
+    public static function int64Split(\GMP $value): array
     {
-        if ($value instanceof GMP === false) {
-            $value = \gmp_init($value);
-        }
-
         $hex = \str_pad(\gmp_strval($value, 16), 16, '0', STR_PAD_LEFT);
 
         $high = self::gmpConvert(\substr($hex, 0, 8), 16, 10);
