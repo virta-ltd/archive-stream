@@ -286,6 +286,9 @@ final class ZipReader implements ArchiveReader
     private function addCdrFile(array $args): \SplTempFileObject
     {
         /** @var string $name */
+        /** @var int|string|\GMP $zlen */
+        /** @var int|string|\GMP $len */
+        /** @var int|string|\GMP $ofs */
         list($name, $meth, $crc, $zlen, $len, $ofs, $genb, $file_attribute) = $args;
 
         // convert the 64 bit ints to 2 32bit ints

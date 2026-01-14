@@ -69,7 +69,7 @@ final class PackHelper
     /**
      * Split a 64-bit integer to two 32-bit integers.
      *
-     * @param mixed $value Integer or GMP resource.
+     * @param int|string|GMP $value Integer or GMP resource.
      * @return array<int, int|string> Containing high and low 32-bit integers.
      */
     public static function int64Split($value): array
