@@ -74,18 +74,14 @@ final class PackHelper
      */
     public static function int64Split($value): array
     {
-        if ($value instanceof GMP) {
-            $hex = \str_pad(\gmp_strval($value, 16), 16, '0', STR_PAD_LEFT);
-
-            $high = self::gmpConvert(\substr($hex, 0, 8), 16, 10);
-            $low = self::gmpConvert(\substr($hex, 8, 8), 16, 10);
-        } else {
-            $left = 0xffffffff00000000;
-            $right = 0x00000000ffffffff;
-
-            $high = ($value & $left) >> 32;
-            $low = $value & $right;
+        if ($value instanceof GMP === false) {
+            $value = \gmp_init($value);
         }
+
+        $hex = \str_pad(\gmp_strval($value, 16), 16, '0', STR_PAD_LEFT);
+
+        $high = self::gmpConvert(\substr($hex, 0, 8), 16, 10);
+        $low = self::gmpConvert(\substr($hex, 8, 8), 16, 10);
 
         return [$low, $high];
     }
